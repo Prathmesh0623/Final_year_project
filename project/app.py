@@ -15,35 +15,35 @@ def index():
 @app.route('/generate-map', methods=['POST'])
 def generate_map():
     try:
-        # Extract coordinates from the form
-        lon1 = float(request.form['longitude1'])
-        lat1 = float(request.form['latitude1'])
-        lon2 = float(request.form['longitude2'])
-        lat2 = float(request.form['latitude2'])
-        lon3 = float(request.form['longitude3'])
-        lat3 = float(request.form['latitude3'])
-        lon4 = float(request.form['longitude4'])
-        lat4 = float(request.form['latitude4'])
+        # Extract and validate coordinates from the form
+        coords = []
+        for i in range(1, 5):
+            lon = request.form.get(f'longitude{i}')
+            lat = request.form.get(f'latitude{i}')
+            if lon is None or lat is None:
+                return jsonify({'error': 'Missing coordinate input.'})
+            try:
+                coords.append((float(lon), float(lat)))
+            except ValueError:
+                return jsonify({'error': f'Invalid coordinate input for point {i}.'})
 
         # Create a polygon using the coordinates
-        nashik_bounds = ee.Geometry.Polygon(
-            [[[lon1, lat1], [lon2, lat2], [lon3, lat3], [lon4, lat4], [lon1, lat1]]]
-        )
+        nashik_bounds = ee.Geometry.Polygon([coords + [coords[0]]])  # Close the polygon
 
         # Initialize geemap and set map center
-        Map = geemap.Map(center=[lat1, lon1], zoom=8)
-        
-        points = nashik_bounds.coordinates().getInfo()
+        Map = geemap.Map(center=[coords[0][1], coords[0][0]], zoom=8)
 
         # Loop through points and fetch satellite imagery
-        for coord in points[0]:
-            lon, lat = coord
+        for lon, lat in coords:
             point = ee.Geometry.Point([lon, lat])
             image = ee.ImageCollection('COPERNICUS/S2') \
                         .filterBounds(point) \
                         .filterDate('2023-01-01', '2023-12-31') \
                         .sort('CLOUDY_PIXEL_PERCENTAGE') \
                         .first()
+
+            if image is None:
+                continue  # Handle case where no images are found
 
             # Visualization parameters
             vis_params = {
@@ -61,10 +61,12 @@ def generate_map():
         Map.save(map_output_path)
 
         # Return the path to the generated map
-        return jsonify({'map_url': 'map_result.html'})
+        return render_template('map_result.html')
     
     except Exception as e:
+        print(f"Error while generating map: {str(e)}")
         return jsonify({'error': str(e)})
+
 
 # Serve static files
 @app.route('/static/<path:path>')
